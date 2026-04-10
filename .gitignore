@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Generated outputs
+matched_jobs.json
+tailored_cvs/
+
+# Local environment
+.env
+.DS_Store
+*.pdf

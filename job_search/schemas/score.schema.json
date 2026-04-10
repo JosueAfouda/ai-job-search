@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["score", "reason"],
+  "properties": {
+    "score": {
+      "type": "number",
+      "minimum": 1.0,
+      "maximum": 5.0
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 600
+    }
+  }
+}
