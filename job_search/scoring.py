@@ -21,8 +21,8 @@ Return STRICT JSON only:
 }}
 
 Scoring scale:
-- 5.0: excellent match; apply immediately
-- 4.0-4.9: good match; keep
+- 5.0: excellent match
+- 4.0-4.9: good match
 - 3.0-3.9: partial match
 - 1.0-2.9: weak match
 

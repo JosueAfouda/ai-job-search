@@ -21,16 +21,23 @@ Running `python3 main.py` will:
    - description
    - URL
 4. Score each job from `1.0` to `5.0` using Codex through a subprocess call.
-5. Keep only jobs with score `>= 4.0`.
+5. Keep only jobs at or above the configured minimum score, defaulting to `4.0`.
 6. Save matching jobs to `matched_jobs.json`.
 7. Generate tailored markdown CVs in `tailored_cvs/`.
 
-The current default sources are:
+The default sources are:
 
 - France Travail
 - HelloWork
+- Apec
+- Indeed
+- Free-Work
+- MeteoJob
+- Upwork
+- Welcome to the Jungle
 
-Apec and Indeed connectors are included and can be enabled with `--sources all`.
+Use `--sources all` to force every registered source, or pass a comma-separated
+subset to narrow a run.
 
 ## Install
 
@@ -72,6 +79,7 @@ python3 main.py --max-per-source 3
 python3 main.py --sources france_travail,hellowork
 python3 main.py --sources all
 python3 main.py --query "Data Engineer Python Azure"
+python3 main.py --min-score 4.5
 python3 main.py --no-llm
 python3 main.py --sample --no-llm
 ```

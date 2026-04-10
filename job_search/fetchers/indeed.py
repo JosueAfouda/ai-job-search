@@ -17,6 +17,8 @@ class IndeedFetcher(BaseFetcher):
                 re.compile(r"indeed\.com/viewjob", re.I),
                 re.compile(r"fr\.indeed\.com/viewjob", re.I),
                 re.compile(r"fr\.indeed\.com/rc/clk", re.I),
+                re.compile(r"fr\.indeed\.com/pagead/clk", re.I),
+                re.compile(r"fr\.indeed\.com/m/jobs", re.I),
             ],
             limit,
         )

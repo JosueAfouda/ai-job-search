@@ -4,11 +4,12 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from job_search.fetchers import FETCHERS
+from job_search.fetchers import DEFAULT_SOURCE_NAMES, FETCHERS
 from job_search.pipeline import DEFAULT_QUERY, PipelineOptions, run_pipeline
 
 
 def parse_args() -> argparse.Namespace:
+    default_sources = ",".join(DEFAULT_SOURCE_NAMES)
     parser = argparse.ArgumentParser(
         description="Agentic Job Search System for a France-focused Data & AI consultant."
     )
@@ -17,11 +18,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--location", default="France", help="Search location.")
     parser.add_argument(
         "--sources",
-        default="france_travail,hellowork",
+        default=default_sources,
         help=f"Comma-separated sources: {', '.join(sorted(FETCHERS))}, or all.",
     )
     parser.add_argument("--max-per-source", type=int, default=5, help="Maximum jobs to fetch per source.")
-    parser.add_argument("--threshold", type=float, default=4.0, help="Minimum score to keep a job.")
+    parser.add_argument("--min-score", type=float, default=4.0, help="Minimum score to keep a job.")
+    parser.add_argument(
+        "--threshold",
+        dest="min_score",
+        type=float,
+        help="Deprecated alias for --min-score.",
+    )
     parser.add_argument("--output", default="matched_jobs.json", help="JSON output path.")
     parser.add_argument("--tailored-dir", default="tailored_cvs", help="Folder for tailored markdown CVs.")
     parser.add_argument("--no-llm", action="store_true", help="Disable Codex subprocess calls and use local fallbacks.")
@@ -38,7 +45,7 @@ def main() -> int:
         location=args.location,
         sources=sources,
         max_per_source=args.max_per_source,
-        threshold=args.threshold,
+        threshold=args.min_score,
         output_json=Path(args.output),
         tailored_dir=Path(args.tailored_dir),
         use_llm=not args.no_llm,
