@@ -21,7 +21,7 @@ def parse_args() -> argparse.Namespace:
         default=default_sources,
         help=f"Comma-separated sources: {', '.join(sorted(FETCHERS))}, or all.",
     )
-    parser.add_argument("--max-per-source", type=int, default=5, help="Maximum jobs to fetch per source.")
+    parser.add_argument("--max-per-source", type=int, default=25, help="Maximum jobs to fetch per source.")
     parser.add_argument("--min-score", type=float, default=4.0, help="Minimum score to keep a job.")
     parser.add_argument(
         "--threshold",
@@ -31,6 +31,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--output", default="matched_jobs.json", help="JSON output path.")
     parser.add_argument("--tailored-dir", default="tailored_cvs", help="Folder for tailored markdown CVs.")
+    parser.add_argument("--cover-letter-dir", default="cover_letters", help="Folder for tailored markdown cover letters.")
+    parser.add_argument("--report", default="job_search_results.md", help="Markdown report output path.")
     parser.add_argument("--no-llm", action="store_true", help="Disable Codex subprocess calls and use local fallbacks.")
     parser.add_argument("--sample", action="store_true", help="Use built-in sample jobs instead of live job boards.")
     return parser.parse_args()
@@ -48,6 +50,8 @@ def main() -> int:
         threshold=args.min_score,
         output_json=Path(args.output),
         tailored_dir=Path(args.tailored_dir),
+        cover_letter_dir=Path(args.cover_letter_dir),
+        report_path=Path(args.report),
         use_llm=not args.no_llm,
         sample=args.sample,
     )
@@ -73,6 +77,9 @@ def main() -> int:
 
     if not run.matched_jobs:
         print(f"No jobs met the threshold. Results saved to {options.output_json}.")
+        print(f"Tailored CV folder: {options.tailored_dir}")
+        print(f"Cover letter folder: {options.cover_letter_dir}")
+        print(f"Markdown report: {options.report_path}")
         return 0
 
     for match in run.matched_jobs:
@@ -84,10 +91,14 @@ def main() -> int:
         print(f"  Link: {job.url}")
         if match.tailored_cv_path:
             print(f"  Tailored CV: {match.tailored_cv_path}")
+        if match.cover_letter_path:
+            print(f"  Cover Letter: {match.cover_letter_path}")
         print("")
 
     print(f"Saved matches: {options.output_json}")
     print(f"Tailored CV folder: {options.tailored_dir}")
+    print(f"Cover letter folder: {options.cover_letter_dir}")
+    print(f"Markdown report: {options.report_path}")
     return 0
 
 

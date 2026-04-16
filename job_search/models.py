@@ -40,10 +40,12 @@ class MatchedJob:
     job: Job
     score: ScoreResult
     tailored_cv_path: str | None = None
+    cover_letter_path: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "job": self.job.to_dict(),
             "score": self.score.to_dict(),
             "tailored_cv_path": self.tailored_cv_path,
+            "cover_letter_path": self.cover_letter_path,
         }
