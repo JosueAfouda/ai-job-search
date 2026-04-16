@@ -33,7 +33,6 @@ The default sources are:
 - Indeed
 - Free-Work
 - MeteoJob
-- Upwork
 - Welcome to the Jungle
 
 Use `--sources all` to force every registered source, or pass a comma-separated

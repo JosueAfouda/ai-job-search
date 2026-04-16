@@ -7,7 +7,6 @@ from .free_work import FreeWorkFetcher
 from .hellowork import HelloWorkFetcher
 from .indeed import IndeedFetcher
 from .meteojob import MeteoJobFetcher
-from .upwork import UpworkFetcher
 from .welcome_to_the_jungle import WelcomeToTheJungleFetcher
 
 
@@ -18,7 +17,6 @@ FETCHERS: dict[str, type[BaseFetcher]] = {
     "indeed": IndeedFetcher,
     "free_work": FreeWorkFetcher,
     "meteojob": MeteoJobFetcher,
-    "upwork": UpworkFetcher,
     "welcome_to_the_jungle": WelcomeToTheJungleFetcher,
 }
 
