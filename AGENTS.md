@@ -2,11 +2,13 @@
 
 ## Project Structure & Module Organization
 
-This is a small Python CLI for France-focused job search and CV tailoring. `main.py` is the command-line entry point. Core behavior lives in `job_search/`: `pipeline.py` orchestrates the run, `models.py` defines dataclasses, `cv_loader.py` reads the candidate PDF, `scoring.py` ranks jobs, `tailoring.py` writes tailored markdown CVs, and `llm.py` wraps Codex subprocess calls. Job-board integrations live in `job_search/fetchers/`; shared schemas live in `job_search/schemas/`. Generated outputs are `matched_jobs.json` and `tailored_cvs/`.
+This repository is a Python CLI for France-focused job search, scoring, and application tailoring. `main.py` parses CLI options and starts the run. Core behavior lives in `job_search/`: `pipeline.py` orchestrates fetch, normalization, filtering, scoring, and document generation; `models.py` defines shared dataclasses; `cv_loader.py`, `scoring.py`, `tailoring.py`, and `cover_letter.py` own their domain steps. Keep job-board integrations in `job_search/fetchers/` and normalize their output into shared `Job` records before downstream use. JSON schemas belong in `job_search/schemas/`.
+
+Generated run artifacts include `matched_jobs.json`, `job_search_results.md`, `tailored_cvs/`, and `cover_letters/`. Treat them as outputs unless a change intentionally updates a fixture or example.
 
 ## Build, Test, and Development Commands
 
-Create a local environment and install dependencies:
+Create an environment and install the only declared dependency set:
 
 ```bash
 python3 -m venv .venv
@@ -14,37 +16,28 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Run the full pipeline with the default CV:
-
-```bash
-python3 main.py
-```
-
-Use deterministic local behavior while developing:
+Run live sources with `python3 main.py`. During development, prefer deterministic local execution:
 
 ```bash
 python3 main.py --sample --no-llm
 python3 main.py --max-per-source 3 --sources france_travail,hellowork
-```
-
-Check import and syntax health before committing:
-
-```bash
 python3 -m py_compile main.py job_search/*.py job_search/fetchers/*.py
 ```
 
+The sample run avoids live job-board HTML and Codex subprocess variability. The compile command checks syntax and import health before review.
+
 ## Coding Style & Naming Conventions
 
-Use Python 3.12-compatible syntax, four-space indentation, type hints, and `from __future__ import annotations` in modules that define typed APIs. Follow the existing dataclass style with `slots=True` for structured records. Name modules and functions in `snake_case`, classes in `PascalCase`, and constants in `UPPER_SNAKE_CASE`. Keep fetcher-specific parsing inside `job_search/fetchers/` and normalize external data into the shared `Job` model.
+Use Python 3.12-compatible code, four-space indentation, type hints, and `from __future__ import annotations` in typed modules. Follow existing structured records with `@dataclass(slots=True)`. Use `snake_case` for modules and functions, `PascalCase` for classes, and `UPPER_SNAKE_CASE` for constants. Keep source-specific parsing inside fetchers instead of leaking board-specific fields into scoring or writers.
 
 ## Testing Guidelines
 
-There is no committed test suite yet. For new behavior, add focused tests under a future `tests/` directory using `test_*.py` filenames. Prefer sample-mode or mocked fetchers so tests do not depend on live job boards or Codex availability. At minimum, run `python3 main.py --sample --no-llm` and the `py_compile` command above before opening a PR.
+There is no committed automated test suite yet. Add focused tests under `tests/` with `test_*.py` names when behavior changes. Prefer sample jobs or mocked fetchers so tests do not depend on remote sites or Codex availability. At minimum, run sample mode and the `py_compile` command above.
 
 ## Commit & Pull Request Guidelines
 
-Git history currently uses a simple initial commit, so keep messages short and imperative, for example `add apec fetcher tests` or `fix cv output paths`. PRs should explain the behavior change, list manual verification commands, mention any live-source assumptions, and include sample output or screenshots when CLI output or generated CV formatting changes.
+Recent commits use brief imperative summaries such as `add other jobboards`; keep new messages concise and behavior-focused. Pull requests should describe changed behavior, list verification commands, call out live-source assumptions, and include representative CLI output when reports or tailored documents change.
 
 ## Security & Configuration Tips
 
-Do not commit personal CV PDFs, generated `matched_jobs.json`, or tailored CVs unless they are intentional fixtures. Treat live job-board HTML and Codex responses as unstable external inputs; handle failures gracefully and keep `--no-llm` usable.
+Do not commit personal CV PDFs or generated application artifacts accidentally. Handle job-board failures and subprocess responses defensively so `--no-llm` remains usable.
