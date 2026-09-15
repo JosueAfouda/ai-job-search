@@ -1,35 +1,37 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from .cover_letter import generate_cover_letter
-from .cv_loader import CandidateProfile, load_cv
+from .cv_loader import CandidateProfile, load_cv, resolve_cv_path
 from .fetchers import build_fetchers
 from .fetchers.base import FetchError
 from .llm import CodexClient
 from .models import Job, MatchedJob
 from .normalizer import normalize_jobs
+from .profile import DEFAULT_PROFILE_PATH, SearchProfile, load_search_profile
 from .scoring import score_job
 from .tailoring import generate_tailored_cv
 from .utils import clean_text, ensure_dir
 
 
-DEFAULT_QUERY = "Data Python"
+DEFAULT_QUERY = None  # Queries come from the selected search profile.
 MAX_JOB_AGE_DAYS = 14
 MIN_YEARLY_SALARY_EUR = 40_000
 
 
 @dataclass(slots=True)
 class PipelineOptions:
-    cv_path: Path = Path("Consultant_Data_Josue_Afouda.pdf")
-    query: str = DEFAULT_QUERY
-    location: str = "France"
+    cv_path: Path | None = None
+    query: str | None = DEFAULT_QUERY
+    location: str | None = None
     sources: list[str] | None = None
-    max_per_source: int = 5
+    max_per_source: int = 25
     threshold: float = 4.0
     output_json: Path = Path("matched_jobs.json")
     tailored_dir: Path = Path("tailored_cvs")
@@ -37,6 +39,7 @@ class PipelineOptions:
     report_path: Path = Path("job_search_results.md")
     use_llm: bool = True
     sample: bool = False
+    profile_path: Path = DEFAULT_PROFILE_PATH
 
 
 @dataclass(slots=True)
@@ -49,10 +52,14 @@ class PipelineRun:
 
 def run_pipeline(options: PipelineOptions, cwd: Path | None = None) -> PipelineRun:
     project_dir = cwd or Path.cwd()
-    candidate = load_cv(options.cv_path)
-    jobs, errors = fetch_jobs(options)
+    if options.max_per_source < 1 or not 1 <= options.threshold <= 5:
+        raise ValueError("max-per-source doit être positif et min-score compris entre 1 et 5.")
+    profile = load_search_profile(options.profile_path)
+    candidate = load_cv(resolve_cv_path(options.cv_path, project_dir), profile)
+    jobs, errors = fetch_jobs(options, profile)
     jobs = normalize_jobs(jobs)
-    jobs = filter_jobs(jobs)
+    jobs = filter_jobs(jobs, max_age_days=profile.max_job_age_days,
+                       min_salary=profile.min_yearly_salary_eur)
 
     codex = CodexClient(project_dir, enabled=options.use_llm)
     matched: list[MatchedJob] = []
@@ -74,6 +81,7 @@ def run_pipeline(options: PipelineOptions, cwd: Path | None = None) -> PipelineR
             codex,
             options.cover_letter_dir,
             use_llm=options.use_llm,
+            candidate=candidate,
         )
         matched.append(
             MatchedJob(
@@ -84,22 +92,36 @@ def run_pipeline(options: PipelineOptions, cwd: Path | None = None) -> PipelineR
             )
         )
 
+    matched.sort(key=lambda match: match.score.score, reverse=True)
     save_matches(options.output_json, matched)
     save_markdown_report(options.report_path, jobs, matched)
     return PipelineRun(candidate=candidate, fetched_jobs=jobs, matched_jobs=matched, errors=errors)
 
 
-def fetch_jobs(options: PipelineOptions) -> tuple[list[Job], list[str]]:
+def fetch_jobs(options: PipelineOptions, profile: SearchProfile | None = None) -> tuple[list[Job], list[str]]:
     if options.sample:
         return sample_jobs(), []
 
+    profile = profile or load_search_profile(options.profile_path)
+    queries = [options.query] if options.query else list(dict.fromkeys(profile.queries))
+    location = options.location or profile.location
+    per_query = max(1, math.ceil(options.max_per_source / len(queries)))
     jobs: list[Job] = []
     errors: list[str] = []
     for fetcher in build_fetchers(options.sources):
-        try:
-            jobs.extend(fetcher.search(options.query, options.location, options.max_per_source))
-        except (FetchError, ValueError) as exc:
-            errors.append(str(exc))
+        batches: list[list[Job]] = []
+        for query in queries:
+            try:
+                batch = fetcher.search(query, location, per_query)
+                batches.append(batch)
+                if not batch:
+                    errors.append(f"{fetcher.source} [{query}]: aucune offre extraite (résultat vide ou page non exploitable).")
+            except (FetchError, ValueError) as exc:
+                errors.append(f"{fetcher.source} [{query}]: {exc}")
+        # Interleave queries so a broad query does not consume the whole source budget.
+        source_jobs = [batch[index] for index in range(per_query)
+                       for batch in batches if index < len(batch)]
+        jobs.extend(normalize_jobs(source_jobs)[:options.max_per_source])
     return jobs, errors
 
 
@@ -134,6 +156,8 @@ def save_markdown_report(path: Path, jobs: list[Job], matches: list[MatchedJob])
                 [
                     f"### {job.title} - {job.company}",
                     f"- Score: {match.score.score:.1f}",
+                    f"- Location: {job.location}",
+                    f"- Work mode: {job.work_mode}",
                     f"- Reason: {match.score.reason}",
                     f"- Link: {job.url}",
                     f"- Tailored CV: {match.tailored_cv_path or 'N/A'}",
@@ -145,16 +169,18 @@ def save_markdown_report(path: Path, jobs: list[Job], matches: list[MatchedJob])
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
-def filter_jobs(jobs: list[Job], today: date | None = None) -> list[Job]:
+def filter_jobs(jobs: list[Job], today: date | None = None,
+                max_age_days: int = MAX_JOB_AGE_DAYS,
+                min_salary: int = MIN_YEARLY_SALARY_EUR) -> list[Job]:
     current_date = today or datetime.now().date()
-    return [job for job in jobs if _is_recent_enough(job, current_date) and _is_salary_acceptable(job)]
+    return [job for job in jobs if _is_recent_enough(job, current_date, max_age_days) and _is_salary_acceptable(job, min_salary)]
 
 
-def _is_recent_enough(job: Job, today: date) -> bool:
+def _is_recent_enough(job: Job, today: date, max_age_days: int = MAX_JOB_AGE_DAYS) -> bool:
     published_date = _extract_job_date(job)
     if published_date is None:
         return True
-    return published_date >= today - timedelta(days=MAX_JOB_AGE_DAYS)
+    return published_date >= today - timedelta(days=max_age_days)
 
 
 def _extract_job_date(job: Job) -> date | None:
@@ -195,9 +221,9 @@ def _parse_date_value(value: object) -> date | None:
     return None
 
 
-def _is_salary_acceptable(job: Job) -> bool:
+def _is_salary_acceptable(job: Job, min_salary: int = MIN_YEARLY_SALARY_EUR) -> bool:
     floor = _extract_salary_floor(job)
-    return floor is None or floor >= MIN_YEARLY_SALARY_EUR
+    return floor is None or floor >= min_salary
 
 
 def _extract_salary_floor(job: Job) -> float | None:
@@ -290,9 +316,12 @@ def _salary_from_text(value: object) -> float | None:
         return None
 
     amount = min(amounts)
-    if "mois" in lower or "mensuel" in lower or "monthly" in lower or "month" in lower:
+    # A freelance day/hour rate must never be compared with an annual salary floor.
+    if re.search(r"(?:\b(?:tjm|journalier|journaliere|hourly rate|daily rate)\b|(?:€|eur(?:os?)?)\s*(?:/|par|per)\s*(?:jour|day|heure|hour)\b)", lower):
+        return None
+    if re.search(r"\b(?:mois|mensuel|monthly|month)\b", lower):
         return amount * 12
-    if any(token in lower for token in ("an", "annuel", "annuelle", "annual", "year", "yr")):
+    if re.search(r"\b(?:an|annuel|annuelle|annual|year|yr)\b", lower):
         return amount
     if amount >= 10_000:
         return amount
@@ -336,25 +365,26 @@ def _job_json_ld(job: Job) -> dict[str, object]:
 
 
 def sample_jobs() -> list[Job]:
-    return [
-        Job(
-            title="Consultant Data & IA - Python SQL Power BI",
-            company="Example Analytics",
-            location="Paris, France",
-            description=(
-                "Nous recherchons un consultant data senior avec Python, SQL, Power BI, "
-                "Machine Learning, Azure Databricks, ETL, forecasting et capacité à accompagner "
-                "les métiers dans la mise en production de data products."
-            ),
-            url="https://example.com/jobs/consultant-data-ia",
-            source="sample",
-        ),
-        Job(
-            title="Développeur Mobile Android Junior",
-            company="Example Mobile",
-            location="Lyon, France",
-            description="Stage ou alternance Android Kotlin pour application mobile grand public.",
-            url="https://example.com/jobs/android-junior",
-            source="sample",
-        ),
+    examples = [
+        ("Senior Python Engineer - IA Agentique et LLM", "Example Agents",
+         "Concevoir des agents IA et des applications LLM en Python avec FastAPI, APIs et Pytest. "
+         "Automatisation des workflows métier, Human-in-the-Loop, SQL, PostgreSQL, Docker, Git et CI/CD. Full remote en France."),
+        ("Développeur Python Senior - Automatisation métier", "Example Automation",
+         "Industrialiser des processus comptables en Python et migrer Excel/VBA avec OpenPyXL, PyWin32 et Pandas. "
+         "Développement Python, Pytest, SQL, Git, GitLab, CI/CD et documentation pour les utilisateurs métier. Poste hybride à Paris."),
+        ("Senior Backend Python Engineer", "Example Backend",
+         "Développement Python backend avec FastAPI, Django, SQLAlchemy et Pytest pour des APIs métier fiables. "
+         "PostgreSQL, Docker, Linux, Git, CI/CD, qualité logicielle et maintenance en production. Poste sur site à Lyon."),
+        ("Consultant Data Analytics - Power BI", "Example Analytics",
+         "Consultant senior en tableaux de bord Power BI, DAX, SQL, Python, Machine Learning, Azure Databricks, "
+         "ETL et forecasting. Analyse des indicateurs et reporting pour les équipes commerciales."),
+        ("Développeur Python Junior - LLM", "Example Junior",
+         "Stage de développement Python avec FastAPI, LLM, agents IA et automatisation des workflows métier. "
+         "Utilisation de Docker, Git, Pytest, SQL et PostgreSQL avec accompagnement par un mentor."),
+        ("RPA Developer Senior", "Example RPA",
+         "Automatisation des processus métier avec UiPath et Power Automate exclusivement. Conception des workflows "
+         "et maintenance des robots avec les équipes financières, documentation et validation des processus."),
     ]
+    return [Job(title=title, company=company, location="France", description=description,
+                url=f"https://example.com/jobs/{index}", source="sample")
+            for index, (title, company, description) in enumerate(examples)]

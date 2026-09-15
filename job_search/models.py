@@ -13,6 +13,7 @@ class Job:
     url: str
     source: str
     raw: dict[str, Any] = field(default_factory=dict)
+    work_mode: str = "unknown"
 
     def key(self) -> tuple[str, str, str]:
         return (

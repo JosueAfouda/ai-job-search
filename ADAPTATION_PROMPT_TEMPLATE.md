@@ -1,5 +1,7 @@
 # Prompt Template d'Adaptation
 
+Pour un simple changement de positionnement, commencez désormais par `search_profile.json` et le nouveau CV (`--cv` si plusieurs PDF sont présents). Les requêtes, compétences prioritaires, intitulés et contraintes sont configurables sans modifier le Python. Voir le README. Ce prompt reste utile pour une évolution plus large, notamment l'ajout de sources.
+
 Ce prompt permet a un utilisateur d'adapter la solution a son profil, son marche et ses sources d'offres sans modifier l'architecture globale du projet.
 
 ```text

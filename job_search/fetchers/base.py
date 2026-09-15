@@ -10,7 +10,7 @@ from html.parser import HTMLParser
 from typing import Any
 
 from ..models import Job
-from ..utils import clean_text, truncate
+from ..utils import clean_text, infer_work_mode, truncate
 
 
 USER_AGENT = (
@@ -215,6 +215,8 @@ def job_from_json_ld(item: dict[str, Any], base_url: str, source: str) -> Job:
         url=urllib.parse.urljoin(base_url, str(url)),
         source=source,
         raw={"json_ld": item},
+        work_mode="remote" if str(item.get("jobLocationType", "")).upper() == "TELECOMMUTE"
+        else infer_work_mode(str(item.get("description", ""))),
     )
 
 

@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from .profile import SearchProfile, has_term, load_search_profile
 from .utils import compact_multiline
-
-
-DEFAULT_CV_PDF = Path("Consultant_Data_Josue_Afouda.pdf")
 
 
 @dataclass(slots=True)
@@ -16,9 +13,24 @@ class CandidateProfile:
     text: str
     name: str
     keywords: list[str]
+    search_profile: SearchProfile | None = None
 
 
-def load_cv(pdf_path: Path = DEFAULT_CV_PDF) -> CandidateProfile:
+def resolve_cv_path(pdf_path: Path | None = None, directory: Path | None = None) -> Path:
+    if pdf_path is not None:
+        return pdf_path
+    candidates = sorted(path for path in (directory or Path.cwd()).iterdir()
+                        if path.is_file() and path.suffix.casefold() == ".pdf")
+    if len(candidates) != 1:
+        raise ValueError(
+            "Placez un seul CV PDF à la racine ou indiquez --cv chemin/vers/cv.pdf "
+            f"({len(candidates)} PDF trouvés)."
+        )
+    return candidates[0]
+
+
+def load_cv(pdf_path: Path | None = None, search_profile: SearchProfile | None = None) -> CandidateProfile:
+    pdf_path = resolve_cv_path(pdf_path)
     if not pdf_path.exists():
         raise FileNotFoundError(f"CV PDF not found: {pdf_path}")
 
@@ -31,7 +43,8 @@ def load_cv(pdf_path: Path = DEFAULT_CV_PDF) -> CandidateProfile:
     return CandidateProfile(
         text=text,
         name=extract_name(text),
-        keywords=extract_keywords(text),
+        keywords=extract_keywords(text, terms=search_profile.vocabulary() if search_profile else None),
+        search_profile=search_profile,
     )
 
 
@@ -90,77 +103,6 @@ def extract_name(cv_text: str) -> str:
     return "Candidate"
 
 
-def extract_keywords(cv_text: str, limit: int = 40) -> list[str]:
-    known_terms = [
-        "Python",
-        "SQL",
-        "Power BI",
-        "Machine Learning",
-        "Deep Learning",
-        "NLP",
-        "Data Engineering",
-        "ETL",
-        "ELT",
-        "PySpark",
-        "Spark",
-        "Azure",
-        "Databricks",
-        "Azure ML",
-        "Docker",
-        "CI/CD",
-        "FastAPI",
-        "SQLAlchemy",
-        "PostgreSQL",
-        "Oracle",
-        "Snowflake",
-        "BigQuery",
-        "Data Modeling",
-        "MLOps",
-        "Forecasting",
-        "Time Series",
-        "Anomaly Detection",
-        "R Shiny",
-        "Plotly",
-        "DAX",
-        "Power Query",
-        "Data Pipelines",
-        "Agents IA",
-        "Codex",
-        "Consultant Data",
-        "Business Intelligence",
-    ]
-
-    found: list[str] = []
-    haystack = cv_text.casefold()
-    for term in known_terms:
-        if term.casefold() in haystack and term not in found:
-            found.append(term)
-    if len(found) >= limit:
-        return found[:limit]
-
-    tokens = re.findall(r"\b[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9+#./-]{2,}\b", cv_text)
-    stop = {
-        "avec",
-        "dans",
-        "pour",
-        "des",
-        "les",
-        "une",
-        "the",
-        "and",
-        "contexte",
-        "stack",
-        "réalisations",
-    }
-    counts: dict[str, int] = {}
-    for token in tokens:
-        key = token.strip(".,;:()[]").casefold()
-        if len(key) < 4 or key in stop:
-            continue
-        counts[token] = counts.get(token, 0) + 1
-    for token, _ in sorted(counts.items(), key=lambda item: item[1], reverse=True):
-        if token not in found:
-            found.append(token)
-        if len(found) >= limit:
-            break
-    return found[:limit]
+def extract_keywords(cv_text: str, limit: int = 80, terms: list[str] | None = None) -> list[str]:
+    vocabulary = terms if terms is not None else load_search_profile().vocabulary()
+    return [term for term in dict.fromkeys(vocabulary) if has_term(cv_text, term)][:limit]

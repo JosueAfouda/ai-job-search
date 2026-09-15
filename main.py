@@ -2,20 +2,24 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from job_search.fetchers import DEFAULT_SOURCE_NAMES, FETCHERS
-from job_search.pipeline import DEFAULT_QUERY, PipelineOptions, run_pipeline
+from job_search.pipeline import PipelineOptions, run_pipeline
+from job_search.profile import DEFAULT_PROFILE_PATH, load_search_profile
+from job_search.cv_loader import resolve_cv_path
 
 
 def parse_args() -> argparse.Namespace:
     default_sources = ",".join(DEFAULT_SOURCE_NAMES)
     parser = argparse.ArgumentParser(
-        description="Agentic Job Search System for a France-focused Data & AI consultant."
+        description="Recherche et classement des offres selon votre CV et votre positionnement."
     )
-    parser.add_argument("--cv", default="Consultant_Data_Josue_Afouda.pdf", help="Path to the candidate CV PDF.")
-    parser.add_argument("--query", default=DEFAULT_QUERY, help="Search query sent to job boards.")
-    parser.add_argument("--location", default="France", help="Search location.")
+    parser.add_argument("--cv", help="CV PDF ; détecté automatiquement si un seul PDF est présent.")
+    parser.add_argument("--profile", type=Path, default=DEFAULT_PROFILE_PATH, help="Profil de recherche JSON.")
+    parser.add_argument("--query", help="Remplace les requêtes du profil par une seule recherche.")
+    parser.add_argument("--location", help="Localisation ; utilise celle du profil par défaut.")
     parser.add_argument(
         "--sources",
         default=default_sources,
@@ -35,16 +39,29 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--report", default="job_search_results.md", help="Markdown report output path.")
     parser.add_argument("--no-llm", action="store_true", help="Disable Codex subprocess calls and use local fallbacks.")
     parser.add_argument("--sample", action="store_true", help="Use built-in sample jobs instead of live job boards.")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.max_per_source < 1:
+        parser.error("--max-per-source doit être supérieur à zéro.")
+    if not 1 <= args.min_score <= 5:
+        parser.error("--min-score doit être compris entre 1 et 5.")
+    if args.query is not None and not args.query.strip():
+        parser.error("--query ne peut pas être vide.")
+    return args
 
 
 def main() -> int:
     args = parse_args()
+    try:
+        profile = load_search_profile(args.profile)
+        cv_path = resolve_cv_path(Path(args.cv) if args.cv else None)
+    except (OSError, ValueError) as exc:
+        print(f"Erreur : {exc}", file=sys.stderr)
+        return 2
     sources = [source.strip() for source in args.sources.split(",") if source.strip()]
     options = PipelineOptions(
-        cv_path=Path(args.cv),
+        cv_path=cv_path,
         query=args.query,
-        location=args.location,
+        location=args.location or profile.location,
         sources=sources,
         max_per_source=args.max_per_source,
         threshold=args.min_score,
@@ -54,16 +71,22 @@ def main() -> int:
         report_path=Path(args.report),
         use_llm=not args.no_llm,
         sample=args.sample,
+        profile_path=args.profile,
     )
 
     print("Agentic Job Search")
     print(f"CV: {options.cv_path}")
-    print(f"Query: {options.query}")
+    print(f"Profile: {profile.headline}")
+    print(f"Queries: {options.query or '; '.join(profile.queries)}")
     print(f"Location: {options.location}")
     print(f"Sources: {', '.join(options.sources or [])}")
     print("")
 
-    run = run_pipeline(options)
+    try:
+        run = run_pipeline(options)
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(f"Erreur : {exc}", file=sys.stderr)
+        return 2
 
     if run.errors:
         print("Fetch warnings:")
